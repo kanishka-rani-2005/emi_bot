@@ -55,7 +55,7 @@ def generate_video(script):
                 },
                 "background": {
                     "type": "color",
-                    "value": "#2E2EB8"
+                    "value": "#0000FF"
                 }
             }
         ],
