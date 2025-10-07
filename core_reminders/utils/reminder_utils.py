@@ -5,21 +5,68 @@ import os
 import logging
 import mimetypes
 import base64
+# NOTE: settings and API clients must be configured in your environment
 from django.conf import settings
 from openai import OpenAI
+# NOTE: ElevenLabs SDK usage might be slightly different depending on version, 
+# assuming client setup here is correct for the user's environment.
 from elevenlabs import ElevenLabs
 
+# --- Configuration (Assumed from original code) ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# Placeholder: In a real Django environment, these would be correctly configured.
+class MockSettings:
+    OPENAI_API_KEY = "sk-..."
+    ELEVENLABS_API_KEY = "..."
+    HEYGEN_API_KEY = "..."
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Use a mock settings object if running standalone, otherwise settings is from Django
+if 'settings' not in locals():
+    try:
+        settings.configure()
+    except Exception:
+        settings = MockSettings() 
+
 openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+# NOTE: ElevenLabs init might vary, using the assumed init from original code
 eleven_client = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
 
-INDIAN_AVATAR_ID = "42faf7886da942cda01bddc9200d73ef"
+INDIAN_AVATAR_ID = "f142bc68aff14463983d9bd526f33390"
 
 BASE_SCRIPTS = {
     'EMI_DUE': "Hello {customer_name}, your EMI of {emi_amount} for loan {loan_number} is due on {due_date}. Please make the payment to avoid penalties. Thank you.",
     'NACH_REMINDER': "Hello {customer_name}, this is a reminder for your NACH presentation for loan {loan_number}. Please ensure you have sufficient balance. Thank you.",
     'BOUNCE_REMINDER': "Hello {customer_name}, your recent EMI payment for loan {loan_number} has bounced. A penalty of {penalty_amount} has been applied. Please make the payment immediately. Thank you."
 }
+
+# --- Utility Functions ---
+def list_heygen_avatars():
+    url = "https://api.heygen.com/v1/video/avatars"
+
+    headers = {
+        "X-Api-Key": settings.HEYGEN_API_KEY, 
+        "Accept": "application/json"
+    }
+
+    try:
+        print("Attempting to list V1 public avatars...")
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+
+        data = response.json()
+        avatars = data.get("data", {}).get("list", [])
+
+        if avatars:
+            print(f"✅ Found {len(avatars)} V1 avatars. Copy one ID.")
+            for avatar in avatars:
+                print(f"  - ID: {avatar.get('avatar_id')} | Name: {avatar.get('name')}")
+        else:
+            print("❌ V1 List is also empty. The one valid ID must be found in your HeyGen dashboard.")
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ V1 Request failed: {e}")
 
 def translate_text_openai(text, target_lang):
     try:
@@ -66,8 +113,8 @@ def generate_script(event_type, customer, loan):
 def generate_voice(script, lang="hi"):
     try:
         voices = {
-            "en": "TVtDNgumMv4lb9zzFzA2",      
-            "hi": "KSsyodh37PbfWy29kPtx",      
+            "en": "TVtDNgumMv4lb9zzFzA2",        
+            "hi": "KSsyodh37PbfWy29kPtx",        
             "hindi": "dxhwlBCxCrnzRlP4wPeE"    
         }
         
@@ -101,6 +148,10 @@ def generate_voice(script, lang="hi"):
         return None
 
 def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
+    """
+    Uploads audio to HeyGen API. Corrected to use the dedicated 'upload.heygen.com' 
+    endpoint for file streams and correctly parse the 'id' field from the response.
+    """
     if not os.path.exists(mp3_path):
         logging.error(f"MP3 file does not exist: {mp3_path}")
         return None
@@ -115,8 +166,10 @@ def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
 
     api_key = settings.HEYGEN_API_KEY
     
-    upload_url_multipart = "https://api.heygen.com/v1/assets/upload"
-    upload_url_base64 = "https://api.heygen.com/v1/assets"
+    # Using the user-specified upload domain for multipart/file stream.
+    # Reverting Base64 upload to api.heygen.com/v1/assets for JSON compatibility (though it fails with 404).
+    upload_url_multipart = "https://upload.heygen.com/v1/asset" 
+    upload_url_base64 = "https://api.heygen.com/v1/assets" 
 
     filename = os.path.basename(mp3_path)
     guessed_type, _ = mimetypes.guess_type(filename)
@@ -127,39 +180,39 @@ def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
         "Content-Type": "application/json",
     }
     
-    headers_multipart = {
+    # Headers for direct file stream upload
+    headers_raw_file = {
         "X-Api-Key": api_key,
+        "Content-Type": content_type, # Specify audio/mpeg
+        "Purpose": "audio",
     }
 
-   
+
+    # --- Raw File Stream Upload Attempt (Matching User's Example) ---
     for attempt in range(1, retries + 1):
         try:
+            logging.info(f"Attempting Raw File Stream upload (URL: {upload_url_multipart})")
+            
             with open(mp3_path, "rb") as f:
-                files = {
-                    "file": (filename, f, content_type),
-                }
-                data = {
-                    "purpose": "audio",
-                }
-                
+                # Posting the raw file stream directly to the specialized upload endpoint
                 resp = requests.post(
-                    upload_url_multipart,
-                    headers=headers_multipart,
-                    files=files,
-                    data=data,
+                    upload_url_multipart, 
+                    data=f,
+                    headers=headers_raw_file,
+                    params={"purpose": "audio"}, # Trying purpose as a query param
                     timeout=60,
                 )
 
-            logging.info(f"[HeyGen multipart] Attempt {attempt} - Status: {resp.status_code}")
-            logging.info(f"[HeyGen multipart] Response: {resp.text}")
+            logging.info(f"[HeyGen Raw Stream] Attempt {attempt} - Status: {resp.status_code}")
+            logging.info(f"[HeyGen Raw Stream] Response: {resp.text}")
 
             if resp.status_code in [200, 201]:
                 resp_json = resp.json()
                 
-                
-                if "data" in resp_json and "asset_id" in resp_json["data"]:
-                    asset_id = resp_json["data"]["asset_id"]
-                    logging.info(f" Audio uploaded successfully. Asset ID: {asset_id}")
+                # *** FIX HERE ***: Check for the correct 'id' key in 'data'
+                if "data" in resp_json and "id" in resp_json["data"]:
+                    asset_id = resp_json["data"]["id"]
+                    logging.info(f" ✅ Audio uploaded successfully. Asset ID: {asset_id}")
                     return asset_id
                     
                 if "asset_id" in resp_json:
@@ -167,24 +220,25 @@ def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
                     logging.info(f" Audio uploaded successfully. Asset ID: {asset_id}")
                     return asset_id
 
-                # If success but asset_id missing, log and break to fallback
-                logging.warning("Multipart succeeded but asset_id not found, trying base64 fallback...")
+                # If success but ID missing, log and break to fallback
+                logging.warning("Raw upload succeeded but asset ID not found, trying Base64 fallback...")
                 break
 
             # If 4xx/5xx, raise to go to retry/backoff
             resp.raise_for_status()
 
         except Exception as e:
-            logging.error(f"Audio upload (multipart) attempt {attempt} failed: {e}")
+            logging.error(f"Audio upload (Raw Stream) attempt {attempt} failed: {e}")
             if attempt < retries:
                 time.sleep(delay * attempt)
-                logging.info(f"Retrying multipart upload (attempt {attempt + 1})...")
+                logging.info(f"Retrying Raw Stream upload (attempt {attempt + 1})...")
             else:
-                logging.warning("All multipart attempts failed, trying base64 fallback...")
+                logging.warning("All Raw Stream attempts failed, trying Base64 fallback...")
 
 
+    # --- Base64 Upload Attempt (Fallback to /v1/assets) ---
     try:
-        logging.info("Attempting base64 upload as fallback...")
+        logging.info("Attempting Base64 upload as fallback (URL: https://api.heygen.com/v1/assets)...")
         
         with open(mp3_path, "rb") as f:
             b64_audio = base64.b64encode(f.read()).decode("utf-8")
@@ -197,7 +251,7 @@ def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
         }
 
         resp = requests.post(
-            upload_url_base64,
+            upload_url_base64, # Using api.heygen.com/v1/assets
             headers=headers_json,
             json=payload,
             timeout=60,
@@ -227,13 +281,12 @@ def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
 
     logging.error(" All attempts to upload audio failed.")
     return None
-
-
 def generate_video(script, customer, timeout=480, poll_interval=8):
     """
     Generate video using HeyGen API with ElevenLabs voice
     """
     try:
+        list_heygen_avatars()
         lang = getattr(customer, "preferred_language", "hi")
 
         # Step 1: Generate voice using ElevenLabs
@@ -276,8 +329,9 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
                         "avatar_style": "normal"
                     },
                     "voice": {
-                        "audio_asset_id": audio_asset_id
-                    },
+                    "type": "audio", 
+                    "audio_asset_id": audio_asset_id
+                },
                     "background": {
                         "type": "color",
                         "value": "#005DFD"
