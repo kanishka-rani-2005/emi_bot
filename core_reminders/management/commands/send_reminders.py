@@ -23,7 +23,7 @@ class Command(BaseCommand):
                 )
 
                 script = generate_script(reminder.event_type, loan.customer, loan)
-                video_url = generate_video(script)
+                video_url = generate_video(script,customer=loan.customer)
 
                 if not video_url:
                     reminder.status = 'FAILED'

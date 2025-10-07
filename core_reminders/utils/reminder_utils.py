@@ -1,112 +1,413 @@
 import requests
 import json
 import time
+import os
+import logging
+import mimetypes
+import base64
 from django.conf import settings
-from transformers import pipeline
+from openai import OpenAI
+from elevenlabs import ElevenLabs
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+eleven_client = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
 
-
-translator = pipeline("translation", model="facebook/m2m100_418M")
+INDIAN_AVATAR_ID = "42faf7886da942cda01bddc9200d73ef"
 
 BASE_SCRIPTS = {
     'EMI_DUE': "Hello {customer_name}, your EMI of {emi_amount} for loan {loan_number} is due on {due_date}. Please make the payment to avoid penalties. Thank you.",
-    'NACH_REMINDER': "Hello {customer_name}, this is a reminder for your second NACH presentation for loan {loan_number}. Please ensure you have sufficient balance. Thank you.",
-    'BOUNCE_REMINDER': "Hello {customer_name}, your recent EMI payment for loan {loan_number} has bounced. A penalty of {penalty_amount} has been applied. Please make the payment immediately to avoid further charges. Thank you.",
+    'NACH_REMINDER': "Hello {customer_name}, this is a reminder for your NACH presentation for loan {loan_number}. Please ensure you have sufficient balance. Thank you.",
+    'BOUNCE_REMINDER': "Hello {customer_name}, your recent EMI payment for loan {loan_number} has bounced. A penalty of {penalty_amount} has been applied. Please make the payment immediately. Thank you."
 }
 
+def translate_text_openai(text, target_lang):
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"Read the sentence carefully. Add if anything is missing without numbers. Translate this message into {target_lang}. Keep tone polite, conversational, use numerals in {target_lang} script. Script must be grammatically correct. It should make sense to a native speaker."
+                },
+                {"role": "user", "content": text}
+            ],
+            timeout=30
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"Translation failed: {e}")
+        return text
+
+
 def generate_script(event_type, customer, loan):
-    base_template = BASE_SCRIPTS.get(event_type)
-    if not base_template:
-        return "Default message: Please pay your EMI."
-    penalty_amount = "₹500"
-    english_script = base_template.format(
+    template = BASE_SCRIPTS.get(event_type)
+    if not template:
+        return "Default reminder: Please pay your EMI."
+
+    english_script = template.format(
         customer_name=customer.name,
         emi_amount=loan.emi_amount,
-        due_date=loan.due_date,
+        due_date=loan.due_date.strftime("%d %B %Y"),
         loan_number=loan.loan_number,
-        penalty_amount=penalty_amount,
+        penalty_amount="₹500"
     )
-    if customer.preferred_language != 'en':
-        try:
-            translated_script = translator(english_script, src_lang="en", tgt_lang=customer.preferred_language)[0]['translation_text']
-            return translated_script
-        except Exception as e:
-            print(f"Translation failed: {e}. Using English script instead.")
-            return english_script
+
+    customer_lang = getattr(customer, "preferred_language", "en")
+    if customer_lang != "en":
+        translated = translate_text_openai(english_script, customer_lang)
+        logging.info(f"Translated Script: {translated}")
+        return translated
     else:
+        logging.info(f"English Script: {english_script}")
         return english_script
 
 
-def generate_video(script):
-    url = "https://api.heygen.com/v2/video/generate"
-
-    payload = {
-        "video_inputs": [
-            {
-                "character": {
-                    "type": "avatar",
-                    "avatar_id": "Abigail_expressive_2024112501", 
-                    "avatar_style": "normal"
-                },
-                "voice": {
-                    "type": "text",
-                    "input_text": script, 
-                    "voice_id": "73c0b6a2e29d4d38aca41454bf58c955" 
-                },
-                "background": {
-                    "type": "color",
-                    "value": "#0000FF"
-                }
-            }
-        ],
-        "dimension": {
-            "width": 1280,
-            "height": 720
-        }
-    }
-
-    headers = {
-        "X-Api-Key": settings.HEYGEN_API_KEY, 
-        "Content-Type": "application/json"
-    }
-
+def generate_voice(script, lang="hi"):
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status() 
-        resp_json = response.json()
+        voices = {
+            "en": "TVtDNgumMv4lb9zzFzA2",      
+            "hi": "KSsyodh37PbfWy29kPtx",      
+            "hindi": "dxhwlBCxCrnzRlP4wPeE"    
+        }
+        
+        voice_id = voices.get(lang.lower(), "TVtDNgumMv4lb9zzFzA2")
+        output_path = "reminder_voice.mp3"
 
-        if "data" not in resp_json or not resp_json["data"]:
-            print("Video generation request failed. Response:", resp_json)
-            return None
+        # Generate audio using ElevenLabs
+        audio = eleven_client.text_to_speech.convert(
+            voice_id=voice_id,
+            model_id="eleven_multilingual_v2",
+            text=script
+        )
+        
+        with open(output_path, "wb") as f:
+            for chunk in audio:
+                f.write(chunk)
 
-        video_id = resp_json["data"]["video_id"]
-        status_url = f"https://api.heygen.com/v1/video_status.get?video_id={video_id}"
-
-        while True:
-            status_resp = requests.get(status_url, headers={"X-Api-Key": settings.HEYGEN_API_KEY})
-            status_resp.raise_for_status()
-            status_json = status_resp.json()
-            status = status_json.get("data", {}).get("status")
-            if status in ["completed", "failed"]:
-                break
-            time.sleep(10)
-
-        if status == "completed":
-            video_url = status_json["data"]["video_url"]
-            print("Video ready! URL:", video_url)
-            return video_url
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            if file_size == 0:
+                logging.error("Generated MP3 is empty")
+                return None
+            logging.info(f"Voice generated successfully: {output_path} ({file_size} bytes)")
+            return output_path
         else:
-            print("Video generation failed:", status_json)
+            logging.error("Voice file was not created")
             return None
 
     except Exception as e:
-        print(f"HeyGen API Error: {e}")
+        logging.error(f"ElevenLabs voice generation failed: {e}")
+        return None
+
+def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
+    if not os.path.exists(mp3_path):
+        logging.error(f"MP3 file does not exist: {mp3_path}")
+        return None
+
+    # Verify file is not empty
+    file_size = os.path.getsize(mp3_path)
+    if file_size == 0:
+        logging.error("MP3 is empty; aborting upload.")
+        return None
+    
+    logging.info(f"Uploading MP3 ({file_size} bytes): {mp3_path}")
+
+    api_key = settings.HEYGEN_API_KEY
+    
+    upload_url_multipart = "https://api.heygen.com/v1/assets/upload"
+    upload_url_base64 = "https://api.heygen.com/v1/assets"
+
+    filename = os.path.basename(mp3_path)
+    guessed_type, _ = mimetypes.guess_type(filename)
+    content_type = guessed_type or "audio/mpeg"
+
+    headers_json = {
+        "X-Api-Key": api_key,
+        "Content-Type": "application/json",
+    }
+    
+    headers_multipart = {
+        "X-Api-Key": api_key,
+    }
+
+   
+    for attempt in range(1, retries + 1):
+        try:
+            with open(mp3_path, "rb") as f:
+                files = {
+                    "file": (filename, f, content_type),
+                }
+                data = {
+                    "purpose": "audio",
+                }
+                
+                resp = requests.post(
+                    upload_url_multipart,
+                    headers=headers_multipart,
+                    files=files,
+                    data=data,
+                    timeout=60,
+                )
+
+            logging.info(f"[HeyGen multipart] Attempt {attempt} - Status: {resp.status_code}")
+            logging.info(f"[HeyGen multipart] Response: {resp.text}")
+
+            if resp.status_code in [200, 201]:
+                resp_json = resp.json()
+                
+                
+                if "data" in resp_json and "asset_id" in resp_json["data"]:
+                    asset_id = resp_json["data"]["asset_id"]
+                    logging.info(f" Audio uploaded successfully. Asset ID: {asset_id}")
+                    return asset_id
+                    
+                if "asset_id" in resp_json:
+                    asset_id = resp_json["asset_id"]
+                    logging.info(f" Audio uploaded successfully. Asset ID: {asset_id}")
+                    return asset_id
+
+                # If success but asset_id missing, log and break to fallback
+                logging.warning("Multipart succeeded but asset_id not found, trying base64 fallback...")
+                break
+
+            # If 4xx/5xx, raise to go to retry/backoff
+            resp.raise_for_status()
+
+        except Exception as e:
+            logging.error(f"Audio upload (multipart) attempt {attempt} failed: {e}")
+            if attempt < retries:
+                time.sleep(delay * attempt)
+                logging.info(f"Retrying multipart upload (attempt {attempt + 1})...")
+            else:
+                logging.warning("All multipart attempts failed, trying base64 fallback...")
+
+
+    try:
+        logging.info("Attempting base64 upload as fallback...")
+        
+        with open(mp3_path, "rb") as f:
+            b64_audio = base64.b64encode(f.read()).decode("utf-8")
+
+        payload = {
+            "name": filename,
+            "purpose": "audio",
+            "mime_type": content_type,
+            "data": b64_audio,
+        }
+
+        resp = requests.post(
+            upload_url_base64,
+            headers=headers_json,
+            json=payload,
+            timeout=60,
+        )
+
+        logging.info(f"[HeyGen base64] Status: {resp.status_code}")
+        logging.info(f"[HeyGen base64] Response: {resp.text}")
+
+        if resp.status_code in [200, 201]:
+            resp_json = resp.json()
+            
+            if "data" in resp_json and "asset_id" in resp_json["data"]:
+                asset_id = resp_json["data"]["asset_id"]
+                logging.info(f" Audio uploaded via base64. Asset ID: {asset_id}")
+                return asset_id
+                
+            if "asset_id" in resp_json:
+                asset_id = resp_json["asset_id"]
+                logging.info(f" Audio uploaded via base64. Asset ID: {asset_id}")
+                return asset_id
+
+        else:
+            logging.error(f"Base64 upload failed: {resp.text}")
+
+    except Exception as e:
+        logging.error(f"Base64 audio upload failed: {e}")
+
+    logging.error(" All attempts to upload audio failed.")
+    return None
+
+
+def generate_video(script, customer, timeout=480, poll_interval=8):
+    """
+    Generate video using HeyGen API with ElevenLabs voice
+    """
+    try:
+        lang = getattr(customer, "preferred_language", "hi")
+
+        # Step 1: Generate voice using ElevenLabs
+        logging.info("Step 1: Generating voice with ElevenLabs...")
+        voice_file = generate_voice(script, lang)
+        if not voice_file:
+            logging.error("Voice generation failed. Aborting video creation.")
+            return None
+
+        # Step 2: Upload voice to HeyGen
+        logging.info("Step 2: Uploading audio to HeyGen...")
+        audio_asset_id = upload_audio_to_heygen(voice_file)
+        
+        # Cleanup temporary MP3 file
+        if os.path.exists(voice_file):
+            try:
+                os.remove(voice_file)
+                logging.info(f"Cleaned up temporary file: {voice_file}")
+            except Exception as e:
+                logging.warning(f"Could not delete temp file: {e}")
+        
+        if not audio_asset_id:
+            logging.error("Audio upload failed. Aborting video creation.")
+            return None
+
+        # Step 3: Request video generation
+        logging.info("Step 3: Requesting video generation from HeyGen...")
+        url = "https://api.heygen.com/v2/video/generate"
+        headers = {
+            "X-Api-Key": settings.HEYGEN_API_KEY,
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "video_inputs": [
+                {
+                    "character": {
+                        "type": "avatar",
+                        "avatar_id": INDIAN_AVATAR_ID,
+                        "avatar_style": "normal"
+                    },
+                    "voice": {
+                        "audio_asset_id": audio_asset_id
+                    },
+                    "background": {
+                        "type": "color",
+                        "value": "#005DFD"
+                    }
+                }
+            ],
+            "caption": False,
+            "test": False
+        }
+
+        logging.info(f"Video generation payload: {json.dumps(payload, indent=2)}")
+        
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        
+        logging.info(f"Video generation response status: {resp.status_code}")
+        logging.info(f"Video generation response: {resp.text}")
+        
+        if resp.status_code not in [200, 201]:
+            logging.error(f"HeyGen API error: {resp.text}")
+            return None
+            
+        resp_json = resp.json()
+        
+        # Extract video_id from response
+        video_id = None
+        if "data" in resp_json and "video_id" in resp_json["data"]:
+            video_id = resp_json["data"]["video_id"]
+        elif "video_id" in resp_json:
+            video_id = resp_json["video_id"]
+            
+        if not video_id:
+            logging.error(f"No video_id in response: {resp_json}")
+            return None
+
+        logging.info(f"Video generation started. Video ID: {video_id}")
+
+        # Step 4: Poll video status until completion
+        logging.info("Step 4: Polling for video completion...")
+        elapsed = 0
+        attempt = 0
+        
+        while elapsed < timeout:
+            attempt += 1
+            
+            try:
+                status_url = f"https://api.heygen.com/v2/video/{video_id}"
+                status_resp = requests.get(status_url, headers=headers, timeout=30)
+                
+                if status_resp.status_code != 200:
+                    logging.warning(f"Status check failed: {status_resp.status_code}")
+                    time.sleep(poll_interval)
+                    elapsed += poll_interval
+                    continue
+                
+                status_data = status_resp.json()
+                logging.info(f"Status check {attempt}: {json.dumps(status_data, indent=2)}")
+                
+                # Extract status and video URL
+                video_status = None
+                video_url = None
+                
+                if "data" in status_data:
+                    data = status_data["data"]
+                    video_status = data.get("status")
+                    video_url = data.get("video_url") or data.get("video_url_caption") or data.get("url")
+                else:
+                    video_status = status_data.get("status")
+                    video_url = status_data.get("video_url") or status_data.get("url")
+                
+                logging.info(f"Video status: {video_status} (attempt {attempt}, elapsed {elapsed}s)")
+                
+                # Check if video is ready
+                if video_status == "completed" and video_url:
+                    logging.info(f" Video generation completed!")
+                    logging.info(f"Video URL: {video_url}")
+                    
+                    # Download video to local storage
+                    try:
+                        save_dir = os.path.join(settings.BASE_DIR, "reminder_videos")
+                        os.makedirs(save_dir, exist_ok=True)
+                        video_path = os.path.join(save_dir, f"{video_id}.mp4")
+
+                        logging.info(f"Downloading video from: {video_url}")
+                        video_resp = requests.get(video_url, stream=True, timeout=300)
+                        video_resp.raise_for_status()
+                        
+                        with open(video_path, "wb") as f:
+                            for chunk in video_resp.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+
+                        video_size = os.path.getsize(video_path)
+                        logging.info(f"Video saved successfully: {video_path} ({video_size} bytes)")
+                        return video_path
+                        
+                    except Exception as download_error:
+                        logging.error(f"Video download failed: {download_error}")
+                        # Return URL as fallback
+                        return video_url
+                        
+                elif video_status in ["failed", "error"]:
+                    logging.error(f" Vide generation failed with status: {video_status}")
+                    return None
+                    
+                elif video_status in ["processing", "pending", "queued"]:
+                    # Continue polling
+                    pass
+                else:
+                    logging.warning(f"Unknown video status: {video_status}")
+                
+            except Exception as e:
+                logging.error(f"Status check error: {e}")
+            
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+        logging.error(f" Video generation timed out after {timeout} seconds")
+        return None
+
+    except Exception as e:
+        logging.error(f" Unexpected error during video generation: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
         return None
 
 def send_whatsapp_video(to_number, video_url):
 
-    print(f"Simulated sending WhatsApp message to {to_number} with video {video_url}")
+    logging.info(f"📱 Sending WhatsApp video to {to_number}")
+    logging.info(f"Video URL: {video_url}")
+    
+    
+    logging.info("[SIMULATED] WhatsApp message sent successfully")
     return "simulated_message_sid"
-
-
-
