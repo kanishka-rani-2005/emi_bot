@@ -8,7 +8,6 @@ from django.conf import settings
 from openai import OpenAI
 from elevenlabs import ElevenLabs
 from datetime import date
-from .voice_config import ELEVENLABS_VOICE_MAP, ELEVENLABS_VOICE_FALLBACK, LANG_SYNONYMS
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -43,9 +42,9 @@ def translate_text_openai(text, target_lang):
     except Exception as e:
         logging.error(f"Translation failed: {e}")
         return text
-    # text="नमस्ते राज, आपके लोन E12345 की 20,000 की EMI 23 अक्टूबर को देय है। कृपया जुर्माने से बचने के लिए भुगतान कर दें। धन्यवाद"
+    # text="नमस्ते kirna, आपके लोन E12345 की 50,000 की EMI 24 अक्टूबर को देय है। कृपया जुर्माने से बचने के लिए भुगतान कर दें। धन्यवाद"
     # text="Hallo Priya, Ihre EMI in Höhe von 15.000 für das Darlehen E-12346 ist am 24. Oktober fällig. Bitte leisten Sie die Zahlung, um Strafgebühren zu vermeiden. Vielen Dank."
-    return text  
+    # return text  
 
 
 def generate_script(event_type, customer, loan):
