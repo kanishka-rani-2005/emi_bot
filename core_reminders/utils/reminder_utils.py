@@ -18,7 +18,7 @@ openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
 eleven_client = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
 
 
-INDIAN_AVATAR_ID = "Aditya_public_2"
+INDIAN_AVATAR_ID = "Aditya_public_1"
 
 BASE_SCRIPTS = {
     "EMI_DUE": "Hello {customer_name}, your EMI of {emi_amount} for loan {loan_number} is due on {due_date}. Please make the payment to avoid penalties. Thank you.",
@@ -177,7 +177,7 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
             ],
             "resolution": "360p",
             "caption": False,
-            "preview": True,
+            "test": True,
         }
 
         resp = requests.post(url, headers=headers, json=payload, timeout=60)
@@ -189,7 +189,7 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
 
         data = resp.json().get("data", {})
         video_id = data.get("video_id")
-        status_url = data.get("status_url") or f"https://api.heygen.com/v2/video/status/{video_id}"
+        status_url = f"https://api.heygen.com/v1/video_status.get?video_id={video_id}"
 
         if not video_id:
             logging.error("No video_id returned from HeyGen.")
@@ -199,8 +199,6 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
 
         elapsed = 0
         attempt = 0
-        time.sleep(20)
-        elapsed += 20
 
         while elapsed < timeout:
             attempt += 1
@@ -208,8 +206,17 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
 
             try:
                 status_resp = requests.get(status_url, headers=headers, timeout=30)
+                logging.info(f"Status response code: {status_resp.status_code}")
+                logging.info(f"Status response body: {status_resp.text}")
+                
                 if status_resp.status_code == 404:
                     logging.warning(f"404 - Video not ready yet. Retrying...")
+                    time.sleep(poll_interval)
+                    elapsed += poll_interval
+                    continue
+
+                if status_resp.status_code != 200:
+                    logging.error(f"Status check failed: {status_resp.text}")
                     time.sleep(poll_interval)
                     elapsed += poll_interval
                     continue
@@ -221,9 +228,10 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
                 logging.info(f"Video status: {status}")
 
                 if status == "completed" and video_url:
-                    save_dir = os.path.join(settings.BASE_DIR, "reminder_videos")
+                    save_dir = os.path.join(settings.MEDIA_ROOT, "reminder_videos")
                     os.makedirs(save_dir, exist_ok=True)
-                    video_path = os.path.join(save_dir, f"{video_id}.mp4")
+                    clean_filename = f"{video_id}.mp4"
+                    video_path = os.path.join(save_dir, clean_filename)
 
                     logging.info(f"Downloading video from {video_url} ...")
                     video_resp = requests.get(video_url, stream=True, timeout=300)
@@ -232,14 +240,21 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
                             f.write(chunk)
 
                     logging.info(f"Video saved: {video_path}")
-                    return video_path
+
+                    web_url = f"{settings.MEDIA_URL}reminder_videos/{clean_filename}"
+                    return web_url  
 
                 elif status in ["failed", "error"]:
                     logging.error(f"Video generation failed: {status_data}")
                     return None
+                
+                elif status in ["processing", "pending"]:
+                    logging.info("Video still processing...")
 
             except Exception as e:
+                import traceback
                 logging.error(f"Polling error: {e}")
+                logging.error(traceback.format_exc())
 
             time.sleep(poll_interval)
             elapsed += poll_interval
@@ -248,7 +263,9 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
         return None
 
     except Exception as e:
+        import traceback
         logging.error(f"Unexpected error in video generation: {e}")
+        logging.error(traceback.format_exc())
         return None
 
 

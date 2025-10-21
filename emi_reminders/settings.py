@@ -126,3 +126,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 ELEVENLABS_API_KEY="sk_53dfd44e80da8e4731aacdb2fe35809b30dc3fcaf398e2dc"
 HEYGEN_API_KEY = "sk_V2_hgu_ki8k1YXdd2t_tlIUgdnFSlTFSZUSVP4SA9ENmrQzPMuH"
 OPENAI_API_KEY="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"
+
+import os 
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
