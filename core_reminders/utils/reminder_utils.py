@@ -27,24 +27,24 @@ BASE_SCRIPTS = {
 }
 
 def translate_text_openai(text, target_lang):
-    # try:
-    #     response = openai_client.chat.completions.create(
-    #         model="gpt-4o-mini",
-    #         messages=[
-    #             {
-    #                 "role": "system",
-    #                 "content": f"Translate this sentence into {target_lang}. Use polite and natural tone with numerals in {target_lang} script.",
-    #             },
-    #             {"role": "user", "content": text},
-    #         ],
-    #         timeout=30,
-    #     )
-    #     return response.choices[0].message.content.strip()
-    # except Exception as e:
-    #     logging.error(f"Translation failed: {e}")
-    #     return text
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"Translate this sentence into {target_lang}. Use polite and natural tone with numerals in {target_lang} script.",
+                },
+                {"role": "user", "content": text},
+            ],
+            timeout=30,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"Translation failed: {e}")
+        return text
     # text="नमस्ते राज, आपके लोन E12345 की 20,000 की EMI 23 अक्टूबर को देय है। कृपया जुर्माने से बचने के लिए भुगतान कर दें। धन्यवाद"
-    text="Hallo Priya, Ihre EMI in Höhe von 15.000 für das Darlehen E-12346 ist am 24. Oktober fällig. Bitte leisten Sie die Zahlung, um Strafgebühren zu vermeiden. Vielen Dank."
+    # text="Hallo Priya, Ihre EMI in Höhe von 15.000 für das Darlehen E-12346 ist am 24. Oktober fällig. Bitte leisten Sie die Zahlung, um Strafgebühren zu vermeiden. Vielen Dank."
     return text  
 
 
