@@ -8,7 +8,7 @@ from django.conf import settings
 from openai import OpenAI
 from elevenlabs import ElevenLabs
 from datetime import date
-
+from .voice_config import ELEVENLABS_VOICE_MAP, ELEVENLABS_VOICE_FALLBACK, LANG_SYNONYMS
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -43,7 +43,8 @@ def translate_text_openai(text, target_lang):
     # except Exception as e:
     #     logging.error(f"Translation failed: {e}")
     #     return text
-    text="नमस्ते राज, आपके लोन E12345 की 20,000 की EMI 23 अक्टूबर को देय है। कृपया जुर्माने से बचने के लिए भुगतान कर दें। धन्यवाद"
+    # text="नमस्ते राज, आपके लोन E12345 की 20,000 की EMI 23 अक्टूबर को देय है। कृपया जुर्माने से बचने के लिए भुगतान कर दें। धन्यवाद"
+    text="Hallo Priya, Ihre EMI in Höhe von 15.000 für das Darlehen E-12346 ist am 24. Oktober fällig. Bitte leisten Sie die Zahlung, um Strafgebühren zu vermeiden. Vielen Dank."
     return text  
 
 
@@ -70,18 +71,15 @@ def generate_script(event_type, customer, loan):
         return english_script
 
 
-def generate_voice(script, lang="hi"):
+def generate_voice(script):
     try:
-        voices = {
-            "en": "TVtDNgumMv4lb9zzFzA2",
-            "hi": "KSsyodh37PbfWy29kPtx",
-            "hindi": "dxhwlBCxCrnzRlP4wPeE",
-        }
-        voice_id = voices.get(lang.lower(), "TVtDNgumMv4lb9zzFzA2")
+        voice_id = "KSsyodh37PbfWy29kPtx"
         output_path = "reminder_voice.mp3"
 
         audio = eleven_client.text_to_speech.convert(
-            voice_id=voice_id, model_id="eleven_multilingual_v2", text=script
+            voice_id=voice_id,
+            model_id="eleven_multilingual_v2",
+            text=script
         )
 
         with open(output_path, "wb") as f:
@@ -142,7 +140,7 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
         lang = getattr(customer, "preferred_language", "hi")
 
         logging.info("Step 1: Generating voice...")
-        voice_file = generate_voice(script, lang)
+        voice_file = generate_voice(script)
         if not voice_file:
             return None
 
