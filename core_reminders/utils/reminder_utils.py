@@ -26,25 +26,25 @@ BASE_SCRIPTS = {
 }
 
 def translate_text_openai(text, target_lang):
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": f"Translate this sentence into {target_lang}. Use polite and natural tone with numerals in {target_lang} script.",
-                },
-                {"role": "user", "content": text},
-            ],
-            timeout=30,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logging.error(f"Translation failed: {e}")
-        return text
-    # text="नमस्ते kirna, आपके लोन E12345 की 50,000 की EMI 24 अक्टूबर को देय है। कृपया जुर्माने से बचने के लिए भुगतान कर दें। धन्यवाद"
+    # try:
+    #     response = openai_client.chat.completions.create(
+    #         model="gpt-4o-mini",
+    #         messages=[
+    #             {
+    #                 "role": "system",
+    #                 "content": f"Translate this sentence into {target_lang}. Use polite and natural tone with numerals in {target_lang} script.",
+    #             },
+    #             {"role": "user", "content": text},
+    #         ],
+    #         timeout=30,
+    #     )
+    #     return response.choices[0].message.content.strip()
+    # except Exception as e:
+    #     logging.error(f"Translation failed: {e}")
+    #     return text
+    text="नमस्ते kirna, आपके लोन E12345 की 50,000 की EMI 24 अक्टूबर को देय है। कृपया जुर्माने से बचने के लिए भुगतान कर दें। धन्यवाद"
     # text="Hallo Priya, Ihre EMI in Höhe von 15.000 für das Darlehen E-12346 ist am 24. Oktober fällig. Bitte leisten Sie die Zahlung, um Strafgebühren zu vermeiden. Vielen Dank."
-    # return text  
+    return text  
 
 
 def generate_script(event_type, customer, loan):
@@ -164,16 +164,16 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
             "video_inputs": [
                 {
                     "character": {
-                        "type": "avatar",
-                        "avatar_id": INDIAN_AVATAR_ID,
-                        "avatar_style": "normal",
+                        "type": "talking_photo",
+                        "talking_photo_id": "2ae0bb59acda48f9b93d59e3a2d9d010",  # RAJESH
+                        "talking_style": "expressive"
                     },
                     "voice": {"type": "audio", "audio_asset_id": audio_asset_id},
-                    "background": {"type": "color", "value": "#005DFD"},
+                    "background": {"type": "color", "value": "#424244"},
                 }
             ],
-            "resolution": "360p",
-            "caption": False,
+            "dimension": {"width": 640, "height": 360},
+            "aspect_ratio": "16:9",
             "test": True,
         }
 
@@ -204,7 +204,6 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
             try:
                 status_resp = requests.get(status_url, headers=headers, timeout=30)
                 logging.info(f"Status response code: {status_resp.status_code}")
-                logging.info(f"Status response body: {status_resp.text}")
                 
                 if status_resp.status_code == 404:
                     logging.warning(f"404 - Video not ready yet. Retrying...")
