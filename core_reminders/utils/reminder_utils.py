@@ -42,8 +42,11 @@ def translate_text_openai(text, target_lang):
     # except Exception as e:
     #     logging.error(f"Translation failed: {e}")
     #     return text
-    text="नमस्ते kirna, आपके लोन E12345 की 50,000 की EMI 24 अक्टूबर को देय है। कृपया जुर्माने से बचने के लिए भुगतान कर दें। धन्यवाद"
-    # text="Hallo Priya, Ihre EMI in Höhe von 15.000 für das Darlehen E-12346 ist am 24. Oktober fällig. Bitte leisten Sie die Zahlung, um Strafgebühren zu vermeiden. Vielen Dank."
+    text='''வணக்கம் கிற்னா, நான் உங்கள் நிதி உதவியாளர் பேசுகிறேன். 
+    உங்கள் கடன் எண் EMI-123467ற்கான மாத தவணை ₹50,000.00, 27 அக்டோபர் 2025 அன்று செலுத்த வேண்டியுள்ளது. 
+      தயவுசெய்து அதை நேரத்தில் செலுத்துங்கள்.EMI-யின் நன்மைகள்: பெரிய தொகையை ஒரே நேரத்தில் செலுத்த தேவையில்லை,
+     மாதாந்திர கட்டணங்களால் நிதி சுமை குறையும்.குறைபாடுகள்: மாதந்தோறும் பொறுப்பு இருக்கும், தாமதம் ஏற்பட்டால் அபராதமும் க்ரெடிட் மதிப்பீட்டிலும் பாதிப்பும் ஏற்படும்.  நேரத்தில் செலுத்தி உங்கள் நிதி நலனை காப்பாற்றுங்கள்.  
+நன்றி!'''
     return text  
 
 
@@ -70,113 +73,106 @@ def generate_script(event_type, customer, loan):
         return english_script
 
 
-def generate_voice(script):
-    try:
-        voice_id = "KSsyodh37PbfWy29kPtx"
-        output_path = "reminder_voice.mp3"
+# def generate_voice(script):
+#     try:
+#         voice_id = "KSsyodh37PbfWy29kPtx"
+#         output_path = "reminder_voice.mp3"
 
-        audio = eleven_client.text_to_speech.convert(
-            voice_id=voice_id,
-            model_id="eleven_multilingual_v2",
-            text=script
-        )
+#         audio = eleven_client.text_to_speech.convert(
+#             voice_id=voice_id,
+#             model_id="eleven_multilingual_v2",
+#             text=script
+#         )
 
-        with open(output_path, "wb") as f:
-            for chunk in audio:
-                f.write(chunk)
+#         with open(output_path, "wb") as f:
+#             for chunk in audio:
+#                 f.write(chunk)
 
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            logging.info(f"Voice generated successfully: {output_path}")
-            return output_path
-        else:
-            logging.error("Voice file was not created or is empty.")
-            return None
-    except Exception as e:
-        logging.error(f"ElevenLabs voice generation failed: {e}")
-        return None
+#         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+#             logging.info(f"Voice generated successfully: {output_path}")
+#             return output_path
+#         else:
+#             logging.error("Voice file was not created or is empty.")
+#             return None
+#     except Exception as e:
+#         logging.error(f"ElevenLabs voice generation failed: {e}")
+#         return None
 
+# def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
+#     if not os.path.exists(mp3_path) or os.path.getsize(mp3_path) == 0:
+#         logging.error(f"MP3 file does not exist or is empty: {mp3_path}")
+#         return None
 
+#     api_key = settings.HEYGEN_API_KEY
+#     upload_url = "https://upload.heygen.com/v1/asset"
 
-def upload_audio_to_heygen(mp3_path, retries=3, delay=3):
-    if not os.path.exists(mp3_path) or os.path.getsize(mp3_path) == 0:
-        logging.error(f"MP3 file does not exist or is empty: {mp3_path}")
-        return None
+#     headers = {
+#         "X-Api-Key": api_key,
+#         "Content-Type": "audio/mpeg",
+#         "Purpose": "audio",
+#     }
 
-    api_key = settings.HEYGEN_API_KEY
-    upload_url = "https://upload.heygen.com/v1/asset"
+#     for attempt in range(1, retries + 1):
+#         try:
+#             with open(mp3_path, "rb") as f:
+#                 resp = requests.post(upload_url, data=f, headers=headers, timeout=60)
 
-    headers = {
-        "X-Api-Key": api_key,
-        "Content-Type": "audio/mpeg",
-        "Purpose": "audio",
-    }
+#             logging.info(f"Upload attempt {attempt}: {resp.status_code} {resp.text}")
 
-    for attempt in range(1, retries + 1):
-        try:
-            with open(mp3_path, "rb") as f:
-                resp = requests.post(upload_url, data=f, headers=headers, timeout=60)
+#             if resp.status_code in [200, 201]:
+#                 data = resp.json().get("data", {})
+#                 asset_id = data.get("id")
+#                 if asset_id:
+#                     logging.info(f"Audio uploaded successfully: {asset_id}")
+#                     return asset_id
 
-            logging.info(f"Upload attempt {attempt}: {resp.status_code} {resp.text}")
+#             time.sleep(delay)
+#         except Exception as e:
+#             logging.error(f"Attempt {attempt} failed: {e}")
+#             time.sleep(delay)
 
-            if resp.status_code in [200, 201]:
-                data = resp.json().get("data", {})
-                asset_id = data.get("id")
-                if asset_id:
-                    logging.info(f"Audio uploaded successfully: {asset_id}")
-                    return asset_id
-
-            time.sleep(delay)
-        except Exception as e:
-            logging.error(f"Attempt {attempt} failed: {e}")
-            time.sleep(delay)
-
-    logging.error("All attempts to upload audio failed.")
-    return None
-
+#     logging.error("All attempts to upload audio failed.")
+#     return None
 
 def generate_video(script, customer, timeout=480, poll_interval=8):
     try:
-        lang = getattr(customer, "preferred_language", "hi")
+        lang=getattr(customer, "preferred_language", "en")
+        if lang =='Tamil':
+            voice_id="f37bfc7d0be8494c8fa103a4a47eed33"  # Tamil voice ID
+        elif lang =='Hindi':
+            voice_id="dcf69bbbab5b41f2b75b9f86316c06c5"  # Hindi voice ID
+        elif lang =='Kannada':
+            voice_id="7d7d4ebc1c164e71a0542ecab97fdb43"  # Kannada voice ID
+        elif lang =='Telugu':
+            voice_id="8b06642340ad474e8d32b040928fe459"  # Telugu voice ID
+        else:
+            voice_id="97dd67ab8ce242b6a9e7689cb00c6414"  # Default to English
 
-        logging.info("Step 1: Generating voice...")
-        voice_file = generate_voice(script)
-        if not voice_file:
-            return None
-
-        logging.info("Step 2: Uploading audio...")
-        audio_asset_id = upload_audio_to_heygen(voice_file)
-        if not audio_asset_id:
-            os.remove(voice_file)
-            return None
-
-        os.remove(voice_file)
-        logging.info("Temporary voice file removed.")
-
-
-        logging.info("Step 3: Requesting video generation...")
+        logging.info("Step 1: Preparing HeyGen video generation payload...")
         url = "https://api.heygen.com/v2/video/generate"
         headers = {
             "X-Api-Key": settings.HEYGEN_API_KEY,
             "Content-Type": "application/json",
         }
-
         payload = {
             "video_inputs": [
                 {
                     "character": {
-                        "type": "talking_photo",
-                        "talking_photo_id": "2ae0bb59acda48f9b93d59e3a2d9d010",  # RAJESH
-                        "talking_style": "expressive"
+                        "type": "avatar",
+                        "avatar_id": "Adriana_Business_Front_public"
                     },
-                    "voice": {"type": "audio", "audio_asset_id": audio_asset_id},
-                    "background": {"type": "color", "value": "#424244"},
+                    "voice": {
+                        "type": "text",
+                        "input_text": script,
+                        "voice_id": voice_id,
+                    }
                 }
             ],
             "dimension": {"width": 640, "height": 360},
             "aspect_ratio": "16:9",
-            "test": True,
+            "test": True
         }
-
+        logging.info("Step 2: Requesting video generation from HeyGen...")
         resp = requests.post(url, headers=headers, json=payload, timeout=60)
         logging.info(f"Video generation response: {resp.status_code} {resp.text}")
 
@@ -186,13 +182,12 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
 
         data = resp.json().get("data", {})
         video_id = data.get("video_id")
-        status_url = f"https://api.heygen.com/v1/video_status.get?video_id={video_id}"
-
         if not video_id:
             logging.error("No video_id returned from HeyGen.")
             return None
 
         logging.info(f"Video generation started. Video ID: {video_id}")
+        status_url = f"https://api.heygen.com/v1/video_status.get?video_id={video_id}"
 
         elapsed = 0
         attempt = 0
@@ -201,56 +196,49 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
             attempt += 1
             logging.info(f"Polling attempt {attempt} (elapsed {elapsed}s)...")
 
-            try:
-                status_resp = requests.get(status_url, headers=headers, timeout=30)
-                logging.info(f"Status response code: {status_resp.status_code}")
-                
-                if status_resp.status_code == 404:
-                    logging.warning(f"404 - Video not ready yet. Retrying...")
-                    time.sleep(poll_interval)
-                    elapsed += poll_interval
-                    continue
+            status_resp = requests.get(status_url, headers=headers, timeout=30)
+            logging.info(f"Status response code: {status_resp.status_code}")
 
-                if status_resp.status_code != 200:
-                    logging.error(f"Status check failed: {status_resp.text}")
-                    time.sleep(poll_interval)
-                    elapsed += poll_interval
-                    continue
+            if status_resp.status_code == 404:
+                logging.warning("404 - Video not ready yet. Retrying...")
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+                continue
 
-                status_data = status_resp.json().get("data", {})
-                status = status_data.get("status")
-                video_url = status_data.get("video_url")
+            if status_resp.status_code != 200:
+                logging.error(f"Status check failed: {status_resp.text}")
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+                continue
 
-                logging.info(f"Video status: {status}")
+            status_data = status_resp.json().get("data", {})
+            status = status_data.get("status")
+            video_url = status_data.get("video_url")
 
-                if status == "completed" and video_url:
-                    save_dir = os.path.join(settings.MEDIA_ROOT, "reminder_videos")
-                    os.makedirs(save_dir, exist_ok=True)
-                    clean_filename = f"{video_id}.mp4"
-                    video_path = os.path.join(save_dir, clean_filename)
+            logging.info(f"Video status: {status}")
 
-                    logging.info(f"Downloading video from {video_url} ...")
-                    video_resp = requests.get(video_url, stream=True, timeout=300)
-                    with open(video_path, "wb") as f:
-                        for chunk in video_resp.iter_content(chunk_size=8192):
-                            f.write(chunk)
+            if status == "completed" and video_url:
+                save_dir = os.path.join(settings.MEDIA_ROOT, "reminder_videos")
+                os.makedirs(save_dir, exist_ok=True)
+                clean_filename = f"{video_id}.mp4"
+                video_path = os.path.join(save_dir, clean_filename)
 
-                    logging.info(f"Video saved: {video_path}")
+                logging.info(f"Downloading video from {video_url} ...")
+                video_resp = requests.get(video_url, stream=True, timeout=300)
+                with open(video_path, "wb") as f:
+                    for chunk in video_resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
 
-                    web_url = f"{settings.MEDIA_URL}reminder_videos/{clean_filename}"
-                    return web_url  
+                logging.info(f"Video saved: {video_path}")
+                web_url = f"{settings.MEDIA_URL}reminder_videos/{clean_filename}"
+                return web_url
 
-                elif status in ["failed", "error"]:
-                    logging.error(f"Video generation failed: {status_data}")
-                    return None
-                
-                elif status in ["processing", "pending"]:
-                    logging.info("Video still processing...")
+            elif status in ["failed", "error"]:
+                logging.error(f"Video generation failed: {status_data}")
+                return None
 
-            except Exception as e:
-                import traceback
-                logging.error(f"Polling error: {e}")
-                logging.error(traceback.format_exc())
+            elif status in ["processing", "pending"]:
+                logging.info("Video still processing...")
 
             time.sleep(poll_interval)
             elapsed += poll_interval
@@ -263,11 +251,6 @@ def generate_video(script, customer, timeout=480, poll_interval=8):
         logging.error(f"Unexpected error in video generation: {e}")
         logging.error(traceback.format_exc())
         return None
-
-
-
-
-
 
 def send_whatsapp_video(to_number, video_url):
     logging.info(f"Sending WhatsApp video to {to_number}")
